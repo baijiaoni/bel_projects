@@ -50,7 +50,7 @@ use work.dac714_pkg.all;
 --                                      |           SW-Mode kann nicht der exterene Trigger und die entsprechende   --
 --                                      |           Trigger-Flanke vorgegen werden, weil waehrend des Resets        --
 --                                      |           diese Bits auf null gesetzt werden. Nachdem der Reset beendet   --
---                                      |           ist (CLR_DAC_active = 0), können die Bits entsprechend gesetzt  --
+--                                      |           ist (CLR_DAC_active = 0), koennen die Bits entsprechend gesetzt --
 --                                      |           werden.                                                         --
 --                                ------+-----------------------------------------------------------------------    --
 --                                  3   | dac_neg_edge_conv;  1 = neg. Flanke ist Trigger, wenn ext. Trig. selekt.  --
@@ -136,13 +136,29 @@ use work.dac714_pkg.all;
 --    Der Generic "Default_is_FG_mode" ist entfernt worden. Nach einem Reset oder Powerup ist immer der Software    --
 --    gesteuerte Mode selektiert. Soll der Funktionsgenerator die Daten liefern, ist auf FG-Mode umzuschalten.      --
 --    Der Funktionsgenerator muss sowieso entsprechend mit Daten versorgt werden, dazu gehoert eben auch die        --
---    Umschaltung den FG-Mode.                                                                                      --
+--    Umschaltung in den FG-Mode.                                                                                   --
 --                                                                                                                  --
 --  Aenderung 2)                                                                                                    --
 --    Bisher wurde bei einer Umschaltung der Betriebsart zwischen Software getrieben oder Funktionsgenerator        --
---    getrieben. Ein Automatisch generierter Reser erzeugt. Dieser Automatismus ist entfernt worden.                --
+--    getrieben ein Automatisch generierter Reser erzeugt. Dieser Automatismus ist entfernt worden.                 --
 --                                                                                                                  --
 ----------------------------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------------------------------------
+--  Vers: 2 Revi: 2: erstellt am 04.10.2013, Autor: W.Panschow                                                      --
+--                                                                                                                  --
+--  Aenderung 1)                                                                                                    --
+--    Signal "New_trm_during_trm_active" ist jetzt nur eine Clockperiode aktiv, deshalb inkrementiert der Fehler-   --
+--    Zaehler "New_trm_during_trm_active_err_cnt" jetzt richtig.                                                    --
+--                                                                                                                  --
+--  Aenderung 2)                                                                                                    --
+--    Im Kontrollregister ist ein weiteres Bit hinzugekommen.                                                       --
+--    Bit(5) enthaelt die Information, ob waehrend der Betriebsart "dac_conv_ext" noch auf den externeren Trigger   --
+--    gewartet wird. Bit(5) => Ext_Trig_wait ist eins, wenn noch kein Trigger aufgetreten ist.                      --
+--                                                                                                                  --
+----------------------------------------------------------------------------------------------------------------------
+
+
 
 
 
@@ -254,7 +270,7 @@ architecture arch_dac714 OF dac714 IS
   signal    New_trm_during_trm_active_err_cnt_b:  unsigned (7 downto 0);  -- holds during read a copy of New_trm_during_trm_active_err_cnt 
   signal    clr_trm_during_trm_active_err_cnt:    std_logic;
   signal    rd_trm_during_trm_active_err_cnt:     std_logic;
-  
+  signal    Ext_Trig_wait:     std_logic;
 
 begin
 
@@ -410,6 +426,7 @@ P_SPI_SM: process (clk, nReset_ff)
       FG_Strobe_dly <= FG_Strobe;
       
       clear_spi_clk <= '0';
+      New_trm_during_trm_active <= '0';
 
       if FG_mode = '0' then
         -- software mode is selected
@@ -650,6 +667,15 @@ P_error_stat: process (clk, nReset_ff)
   
 DAC_SI  <= Shift_Reg(Shift_Reg'high);
 
+P_Ext_Trig_wait: process (all)
+  begin
+    if dac_conv_extern = '1' and ((SPI_SM = Load) or (SPI_SM = Load_wait)) then
+      Ext_Trig_wait <= '1';
+    else
+      Ext_Trig_wait <= '0';
+    end if;
+  end process P_Ext_Trig_wait;
+
 
 nDAC_CLK <= not spi_clk; 
 
@@ -658,7 +684,7 @@ P_read_mux: process (all)
   begin
     sel_mux := ('0' ,'0', rd_trm_during_trm_active_err_cnt, rd_old_data_err_cnt, rd_shift_err_cnt, Rd_DAC_Cntrl);
     case sel_mux is
-      when "000001" => Rd_Port <= (X"00" & "000" & FG_mode & dac_neg_edge_conv & dac_conv_extern & not nCLR_DAC & SPI_TRM);
+      when "000001" => Rd_Port <= (X"00" & "00" & Ext_Trig_wait & FG_mode & dac_neg_edge_conv & dac_conv_extern & not nCLR_DAC & SPI_TRM);
       when "000010" => Rd_Port <= (X"00" & std_logic_vector(Trig_DAC_during_shift_err_cnt_b));
       when "000100" => Rd_Port <= (X"00" & std_logic_vector(Trig_DAC_with_old_data_err_cnt_b));
       when "001000" => Rd_Port <= (X"00" & std_logic_vector(New_trm_during_trm_active_err_cnt_b));
